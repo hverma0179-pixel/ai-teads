@@ -1,0 +1,16 @@
+{
+  "phone": "",
+  "email": "",
+  "broker": "mock",
+  "brokerApiKey": "",
+  "brokerApiSecret": "",
+  "brokerAccessToken": "",
+  "aiApiKeys": ["", "", "", "", "", "", "", "", "", ""],
+  "paperTrading": true,
+  "realTrading": false,
+  "directTrade": false,
+  "emergencyStop": false,
+  "maxTradeValue": 25000,
+  "dailyLossLimit": 1000,
+  "minConfidence": 0.68
+}
