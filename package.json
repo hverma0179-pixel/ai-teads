@@ -1,0 +1,17 @@
+{
+  "name": "indian-stock-ai-trading-app",
+  "version": "1.0.0",
+  "description": "Beginner friendly Indian stock market AI paper trading dashboard.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.18.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
