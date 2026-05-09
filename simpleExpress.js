@@ -25,6 +25,15 @@ function decorateResponse(res) {
     return res;
   };
   res.json = (value) => sendJson(res, res.statusCode || 200, value);
+  res.sendFile = (filePath) => {
+    if (!fs.existsSync(filePath)) {
+      return sendJson(res, 404, { error: "File not found" });
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    res.writeHead(res.statusCode || 200, { "Content-Type": mimeTypes[ext] || "application/octet-stream" });
+    fs.createReadStream(filePath).pipe(res);
+  };
   return res;
 }
 
