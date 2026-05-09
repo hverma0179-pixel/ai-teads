@@ -1,3 +1,54 @@
+try {
+  require("dotenv").config();
+} catch (error) {
+  // dotenv is optional for local fallback.
+}
+
+let express;
+try {
+  express = require("express");
+} catch (error) {
+  express = require("./simpleExpress");
+}
+
+const path = require("path");
+
+const agent = require("./agent");
+const marketData = require("./marketData");
+const orderManager = require("./orderManager");
+const logger = require("./logger");
+const storage = require("./storage");
+
+const app = express();
+const PORT = Number(process.env.PORT || 3000);
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+const otpStore = new Map();
+
+function safeSettings(settings) {
+  return {
+    ...settings,
+    aiApiKeys: settings.aiApiKeys.map((key) => (key ? "saved" : "")),
+    brokerApiKey: settings.brokerApiKey ? "saved" : "",
+    brokerApiSecret: settings.brokerApiSecret ? "saved" : "",
+    brokerAccessToken: settings.brokerAccessToken ? "saved" : ""
+  };
+}
+
+function maskValue(currentValue, newValue) {
+  if (newValue === "saved") return currentValue || "";
+  return newValue || "";
+}
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    ok: true,
     app: "Indian Stock AI Trading App",
     paperTradingDefault: true,
     market: marketData.getMarketStatus()
@@ -12,14 +63,16 @@ app.post("/api/auth/request-otp", (req, res) => {
 
   const identity = String(phone || email).trim().toLowerCase();
   const otp = String(Math.floor(100000 + Math.random() * 900000));
+
   otpStore.set(identity, {
     otp,
     expiresAt: Date.now() + 5 * 60 * 1000
   });
 
   logger.info("OTP generated for login", { identity, otpForLocalDemo: otp });
+
   res.json({
-    message: "OTP generated. In this local demo, check server logs.",
+    message: "OTP generated. In development, OTP is shown here.",
     devOtp: process.env.NODE_ENV === "production" ? undefined : otp
   });
 });
@@ -34,9 +87,15 @@ app.post("/api/auth/verify-otp", (req, res) => {
   }
 
   otpStore.delete(identity);
+
   const sessionToken = Buffer.from(`${identity}:${Date.now()}`).toString("base64url");
+
   logger.info("User logged in with OTP", { identity });
-  res.json({ message: "Login successful.", sessionToken });
+
+  res.json({
+    message: "Login successful.",
+    sessionToken
+  });
 });
 
 app.get("/api/settings", (req, res) => {
@@ -64,7 +123,9 @@ app.post("/api/settings", (req, res) => {
     emergencyStop: incoming.emergencyStop !== undefined ? Boolean(incoming.emergencyStop) : current.emergencyStop,
     maxTradeValue: Number(incoming.maxTradeValue || current.maxTradeValue),
     dailyLossLimit: Number(incoming.dailyLossLimit || current.dailyLossLimit),
-    minConfidence: Number(incoming.minConfidence || current.minConfidence)
+    minConfidence: Number(incoming.minConfidence || current.minConfidence),
+    upiId: incoming.upiId ?? current.upiId ?? "",
+    withdrawPhone: incoming.withdrawPhone ?? current.withdrawPhone ?? ""
   };
 
   if (settings.realTrading && settings.paperTrading) {
@@ -72,6 +133,7 @@ app.post("/api/settings", (req, res) => {
   }
 
   storage.saveSettings(settings);
+
   logger.info("Settings updated", {
     broker: settings.broker,
     paperTrading: settings.paperTrading,
@@ -79,6 +141,7 @@ app.post("/api/settings", (req, res) => {
     directTrade: settings.directTrade,
     emergencyStop: settings.emergencyStop
   });
+
   res.json(safeSettings(settings));
 });
 
@@ -101,7 +164,11 @@ app.post("/api/research", async (req, res) => {
 
   try {
     const research = marketData.researchIndianStocks([symbol])[0];
-    const voteResult = await agent.researchAndVote({ stock: research, settings, maxMs: 19000 });
+    const voteResult = await agent.researchAndVote({
+      stock: research,
+      settings,
+      maxMs: 19000
+    });
 
     logger.info("AI research completed", {
       symbol,
@@ -128,8 +195,19 @@ app.post("/api/trade", async (req, res) => {
 
   try {
     const stock = marketData.researchIndianStocks([symbol])[0];
-    const voteResult = await agent.researchAndVote({ stock, settings, maxMs: 19000 });
-    const result = await orderManager.executeDecision({ stock, voteResult, quantity, settings });
+    const voteResult = await agent.researchAndVote({
+      stock,
+      settings,
+      maxMs: 19000
+    });
+
+    const result = await orderManager.executeDecision({
+      stock,
+      voteResult,
+      quantity,
+      settings
+    });
+
     res.json(result);
   } catch (error) {
     logger.error("Trade flow failed", { symbol, error: error.message });
@@ -139,10 +217,13 @@ app.post("/api/trade", async (req, res) => {
 
 app.post("/api/emergency-stop", (req, res) => {
   const settings = storage.getSettings();
+
   settings.emergencyStop = true;
   settings.directTrade = false;
+
   storage.saveSettings(settings);
   logger.warn("Emergency stop enabled by user");
+
   res.json({
     message: "Emergency stop is ON. New trades are blocked.",
     settings: safeSettings(settings)
@@ -156,6 +237,7 @@ app.post("/api/trades/refresh", (req, res) => {
 
 app.get("/api/dashboard", (req, res) => {
   storage.refreshOpenTrades(marketData.getLivePrice);
+
   res.json({
     settings: safeSettings(storage.getSettings()),
     market: marketData.getMarketStatus(),
