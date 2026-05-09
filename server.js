@@ -1,7 +1,7 @@
 try {
   require("dotenv").config();
 } catch (error) {
-  // dotenv is optional for local fallback.
+  // dotenv optional hai
 }
 
 let express;
@@ -11,6 +11,7 @@ try {
   express = require("./simpleExpress");
 }
 
+const fs = require("fs");
 const path = require("path");
 
 const agent = require("./agent");
@@ -21,15 +22,26 @@ const storage = require("./storage");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const publicDir = path.join(__dirname, "public");
+const indexFile = path.join(publicDir, "index.html");
 
-app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
-
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(publicDir));
 
 const otpStore = new Map();
+
+function sendIndex(req, res) {
+  if (!fs.existsSync(indexFile)) {
+    return res.status(500).send(`
+      <h1>public/index.html missing</h1>
+      <p>Create this file in your repo:</p>
+      <pre>public/index.html</pre>
+    `);
+  }
+
+  return res.sendFile(indexFile);
+}
 
 function safeSettings(settings) {
   return {
@@ -46,6 +58,12 @@ function maskValue(currentValue, newValue) {
   return newValue || "";
 }
 
+app.get("/", sendIndex);
+
+app.get("/health", (req, res) => {
+  res.json({ ok: true, message: "Server running" });
+});
+
 app.get("/api/health", (req, res) => {
   res.json({
     ok: true,
@@ -57,6 +75,7 @@ app.get("/api/health", (req, res) => {
 
 app.post("/api/auth/request-otp", (req, res) => {
   const { phone, email } = req.body || {};
+
   if (!phone && !email) {
     return res.status(400).json({ error: "Phone number or email is required." });
   }
@@ -69,10 +88,13 @@ app.post("/api/auth/request-otp", (req, res) => {
     expiresAt: Date.now() + 5 * 60 * 1000
   });
 
-  logger.info("OTP generated for login", { identity, otpForLocalDemo: otp });
+  logger.info("OTP generated for login", {
+    identity,
+    otpForLocalDemo: otp
+  });
 
   res.json({
-    message: "OTP generated. In development, OTP is shown here.",
+    message: "OTP generated.",
     devOtp: process.env.NODE_ENV === "production" ? undefined : otp
   });
 });
@@ -129,7 +151,9 @@ app.post("/api/settings", (req, res) => {
   };
 
   if (settings.realTrading && settings.paperTrading) {
-    return res.status(400).json({ error: "Turn paper trading OFF before enabling real trading." });
+    return res.status(400).json({
+      error: "Turn paper trading OFF before enabling real trading."
+    });
   }
 
   storage.saveSettings(settings);
@@ -164,6 +188,7 @@ app.post("/api/research", async (req, res) => {
 
   try {
     const research = marketData.researchIndianStocks([symbol])[0];
+
     const voteResult = await agent.researchAndVote({
       stock: research,
       settings,
@@ -183,7 +208,11 @@ app.post("/api/research", async (req, res) => {
       voteResult
     });
   } catch (error) {
-    logger.error("AI research failed", { symbol, error: error.message });
+    logger.error("AI research failed", {
+      symbol,
+      error: error.message
+    });
+
     res.status(500).json({ error: error.message });
   }
 });
@@ -195,6 +224,7 @@ app.post("/api/trade", async (req, res) => {
 
   try {
     const stock = marketData.researchIndianStocks([symbol])[0];
+
     const voteResult = await agent.researchAndVote({
       stock,
       settings,
@@ -210,7 +240,11 @@ app.post("/api/trade", async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    logger.error("Trade flow failed", { symbol, error: error.message });
+    logger.error("Trade flow failed", {
+      symbol,
+      error: error.message
+    });
+
     res.status(500).json({ error: error.message });
   }
 });
@@ -248,7 +282,16 @@ app.get("/api/dashboard", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  logger.info(`Server running at http://localhost:${PORT}`);
-  console.log(`Indian Stock AI Trading App running at http://localhost:${PORT}`);
+app.get("/api/*", (req, res) => {
+  res.status(404).json({
+    error: "API route not found",
+    path: req.path
+  });
+});
+
+app.get("*", sendIndex);
+
+app.listen(PORT, "0.0.0.0", () => {
+  logger.info(`Server running on port ${PORT}`);
+  console.log(`Indian Stock AI Trading App running on port ${PORT}`);
 });
